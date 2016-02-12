@@ -1,4 +1,11 @@
-import scala.concurrent.Await
+import java.io.IOException
+import java.net.ServerSocket
+import java.util.concurrent.TimeUnit
+
+import proxy.SleepyProxy
+import reactivemongo.core.errors.GenericDriverException
+
+import scala.concurrent.{ Future, Await }
 import scala.concurrent.duration.FiniteDuration
 
 import reactivemongo.bson.{ BSONArray, BSONBooleanLike, BSONDocument }
@@ -9,13 +16,10 @@ import reactivemongo.core.commands.{
   SuccessfulAuthentication
 }
 
-import reactivemongo.api.{
-  BSONSerializationPack,
-  FailoverStrategy,
-  MongoDriver,
-  ScramSha1Authentication
-}
+import reactivemongo.api._
 import reactivemongo.api.commands.Command
+
+import scala.util.{ Failure, Success }
 
 object DriverSpec extends org.specs2.mutable.Specification {
   "Driver" title
@@ -168,6 +172,30 @@ object DriverSpec extends org.specs2.mutable.Specification {
     "driver shutdown" in { // mainly to ensure the test driver is closed
       driver.close() must not(throwA[Exception])
     } tag ("mongo3", "not_mongo26")
+  }
+
+  "Connection" should {
+    "timeout when it is idle" in {
+      val proxyPort = 1999
+
+      Future { SleepyProxy.start(proxyPort, 27017, "localhost") }.map { ctx =>
+        try {
+          lazy val driver = MongoDriver()
+          lazy val connection = driver.connection(
+            List(s"localhost:$proxyPort"), MongoConnectionOptions(socketTimeoutMS = 400))
+
+          val _db = connection("specs2-test-reactivemongo")
+          Await.ready(_db.drop, timeout)
+
+          ctx.setSleepTime(600)
+
+          Await.result(_db.drop, timeout) must throwA[GenericDriverException](message = "socket disconnected")
+        } finally {
+          ctx.shutDown()
+        }
+        ok
+      }.await(0, timeout)
+    }
   }
 
   "Database" should {
