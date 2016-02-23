@@ -15,9 +15,12 @@
  */
 package reactivemongo.api.collections
 
-import scala.concurrent.{ ExecutionContext, Future }
-import scala.util.Try
+import scala.util.{ Failure, Success, Try }
 import scala.util.control.NonFatal
+
+import scala.collection.immutable.ListSet
+
+import scala.concurrent.{ ExecutionContext, Future }
 
 import org.jboss.netty.buffer.ChannelBuffer
 
@@ -222,8 +225,21 @@ trait GenericCollection[P <: SerializationPack with Singleton] extends Collectio
    * Returns the distinct values for a specified field across a single collection and returns the results in an array.
    * @param key the field for which to return distinct values
    * @param selector the query selector that specifies the documents from which to retrieve the distinct values.
+   * @param readConcern the read concern
    */
-  def distinct(key: String, selector: Option[pack.Document] = None)(implicit ec: ExecutionContext): Future[List[pack.Value]] = runCommand(DistinctCommand.Distinct(keyString = key, query = selector)).map(_.values)
+  def distinct[T](key: String, selector: Option[pack.Document] = None, readConcern: ReadConcern = ReadConcern.Local)(implicit reader: pack.NarrowValueReader[T], ec: ExecutionContext): Future[ListSet[T]] = {
+    implicit val widenReader = pack.widenReader(reader)
+    val version = db.connection.metadata.
+      fold[MongoWireVersion](MongoWireVersion.V30)(_.maxWireVersion)
+
+    runCommand(DistinctCommand.Distinct(
+      key, selector, readConcern, version)).flatMap {
+      _.result[T] match {
+        case Failure(cause)  => Future.failed[ListSet[T]](cause)
+        case Success(result) => Future.successful(result)
+      }
+    }
+  }
 
   @inline private def defaultWriteConcern = db.connection.options.writeConcern
 
@@ -258,6 +274,7 @@ trait GenericCollection[P <: SerializationPack with Singleton] extends Collectio
     }
     val metadata = db.connection.metadata
     if (!documents.isEmpty) {
+      // TODO: Await maxTimeout?
       val havingMetadata = Failover2(db.connection, failoverStrategy) { () =>
         metadata.map(Future.successful).getOrElse(Future.failed(ConnectionNotInitialized.MissingMetadata))
       }.future
@@ -298,6 +315,7 @@ trait GenericCollection[P <: SerializationPack with Singleton] extends Collectio
    * @return a future [[reactivemongo.api.commands.WriteResult]] that can be used to check whether the insertion was successful.
    */
   def insert[T](document: T, writeConcern: WriteConcern = defaultWriteConcern)(implicit writer: pack.Writer[T], ec: ExecutionContext): Future[WriteResult] = {
+    // TODO: Await maxTimeout
     Failover2(db.connection, failoverStrategy) { () =>
       db.connection.metadata match {
         case Some(metadata) if metadata.maxWireVersion >= MongoWireVersion.V26 =>
@@ -342,6 +360,7 @@ trait GenericCollection[P <: SerializationPack with Singleton] extends Collectio
    * @return a future [[reactivemongo.api.commands.WriteResult]] that can be used to check whether the update was successful.
    */
   def update[S, U](selector: S, update: U, writeConcern: WriteConcern = defaultWriteConcern, upsert: Boolean = false, multi: Boolean = false)(implicit selectorWriter: pack.Writer[S], updateWriter: pack.Writer[U], ec: ExecutionContext): Future[UpdateWriteResult] = Failover2(db.connection, failoverStrategy) { () =>
+    // TODO: Await maxTimeout
     db.connection.metadata match {
       case Some(metadata) if (
         metadata.maxWireVersion >= MongoWireVersion.V26) => {
@@ -587,6 +606,7 @@ trait GenericCollection[P <: SerializationPack with Singleton] extends Collectio
    */
   def remove[T](query: T, writeConcern: WriteConcern = defaultWriteConcern, firstMatchOnly: Boolean = false)(implicit writer: pack.Writer[T], ec: ExecutionContext): Future[WriteResult] =
     Failover2(db.connection, failoverStrategy) { () =>
+      // TODO: Await maxTimeout
       db.connection.metadata match {
         case Some(metadata) if (
           metadata.maxWireVersion >= MongoWireVersion.V26) => {

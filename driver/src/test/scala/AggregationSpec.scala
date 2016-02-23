@@ -90,12 +90,10 @@ object AggregationSpec extends org.specs2.mutable.Specification {
             await(timeoutMillis)
         }
 
-        /* TODO: (after cursor fix)
         "with limit (maxDocs)" in {
           collect(2) aka "cursor result" must beEqualTo(expected take 2).
             await(timeoutMillis)
         }
-         */
       }
     }
 
@@ -138,11 +136,9 @@ object AggregationSpec extends org.specs2.mutable.Specification {
     }
 
     "return distinct states" in {
-      val expected: List[BSONValue] = List("NY", "FR", "JP").
-        map(BSONString.apply)
-
-      collection.distinct("state").
-        aka("results") must beEqualTo(expected).await(timeoutMillis)
+      collection.distinct[String]("state").
+        aka("states") must beEqualTo(List("NY", "FR", "JP")).
+        await(timeoutMillis)
     }
 
     "return a random sample" in {
