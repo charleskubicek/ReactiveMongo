@@ -37,7 +37,6 @@ object SleepyProxy {
     val cf: ClientSocketChannelFactory = new NioClientSocketChannelFactory(executor, executor)
 
     val pipelineFactory: ChannelPipelineFactory = new ChannelPipelineFactory() {
-      @throws(classOf[Exception])
       def getPipeline: ChannelPipeline = {
         val p: ChannelPipeline = pipeline
         p.addLast("handler", new SleepyProxyInboundHandler(cf, remoteHost, remotePort, sleepTime))
@@ -60,7 +59,6 @@ class SleepyProxyInboundHandler(cf: ClientSocketChannelFactory, remoteHost: Stri
   @volatile
   private var outboundChannel: Channel = null
 
-  @throws(classOf[Exception])
   override def channelOpen(ctx: ChannelHandlerContext, e: ChannelStateEvent) {
     val inboundChannel: Channel = e.getChannel
     inboundChannel.setReadable(false)
@@ -71,7 +69,6 @@ class SleepyProxyInboundHandler(cf: ClientSocketChannelFactory, remoteHost: Stri
     val f: ChannelFuture = cb.connect(new InetSocketAddress(remoteHost, remotePort))
     outboundChannel = f.getChannel
     f.addListener(new ChannelFutureListener() {
-      @throws(classOf[Exception])
       def operationComplete(future: ChannelFuture) {
         if (future.isSuccess) {
           inboundChannel.setReadable(true)
@@ -82,48 +79,41 @@ class SleepyProxyInboundHandler(cf: ClientSocketChannelFactory, remoteHost: Stri
     })
   }
 
-  @throws(classOf[Exception])
   override def messageReceived(ctx: ChannelHandlerContext, e: MessageEvent) {
     val msg: ChannelBuffer = e.getMessage.asInstanceOf[ChannelBuffer]
     try {
       Thread.sleep(this.sleepTime.get)
     } catch {
       case e1: InterruptedException => {
-        e1.printStackTrace
+        e1.printStackTrace()
       }
     }
     outboundChannel.write(msg)
   }
 
-  @throws(classOf[Exception])
   override def channelClosed(ctx: ChannelHandlerContext, e: ChannelStateEvent) {
     if (outboundChannel != null) {
       closeOnFlush(outboundChannel)
     }
   }
 
-  @throws(classOf[Exception])
   override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) {
-    e.getCause.printStackTrace
+    e.getCause.printStackTrace()
     closeOnFlush(e.getChannel)
   }
 
   private class OutboundHandler(inboundChannel: Channel) extends SimpleChannelUpstreamHandler {
 
-    @throws(classOf[Exception])
     override def messageReceived(ctx: ChannelHandlerContext, e: MessageEvent) {
       val msg: ChannelBuffer = e.getMessage.asInstanceOf[ChannelBuffer]
       inboundChannel.write(msg)
     }
 
-    @throws(classOf[Exception])
     override def channelClosed(ctx: ChannelHandlerContext, e: ChannelStateEvent) {
       closeOnFlush(inboundChannel)
     }
 
-    @throws(classOf[Exception])
     override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) {
-      e.getCause.printStackTrace
       closeOnFlush(e.getChannel)
     }
   }

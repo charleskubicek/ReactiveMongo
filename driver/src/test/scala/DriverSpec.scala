@@ -179,18 +179,21 @@ object DriverSpec extends org.specs2.mutable.Specification {
       val proxyPort = 1999
 
       Future { SleepyProxy.start(proxyPort, 27017, "localhost") }.map { ctx =>
+        lazy val driver = MongoDriver()
+        lazy val connection = driver.connection( // 400ms timeout to ensure cluster setup is successful
+          List(s"localhost:$proxyPort"), MongoConnectionOptions(socketTimeoutMS = 400))
         try {
-          lazy val driver = MongoDriver()
-          lazy val connection = driver.connection(
-            List(s"localhost:$proxyPort"), MongoConnectionOptions(socketTimeoutMS = 400))
-
-          val _db = connection("specs2-test-reactivemongo")
+          val _db = connection("specs2-idle-test-reactivemongo")
           Await.ready(_db.drop, timeout)
 
-          ctx.setSleepTime(600)
+          ctx.setSleepTime(500)
 
           Await.result(_db.drop, timeout) must throwA[GenericDriverException](message = "socket disconnected")
+
         } finally {
+          ctx.setSleepTime(0)
+          connection.close()
+          driver.close()
           ctx.shutDown()
         }
         ok
